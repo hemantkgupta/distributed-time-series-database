@@ -1,0 +1,17 @@
+rootProject.name = 'distributed-time-series-database'
+
+// Foundational
+include 'tsdb-common'
+
+// Phase 1 — Foundation: compression + WAL + head
+include 'tsdb-compression'
+include 'tsdb-wal'
+include 'tsdb-head'
+
+// Phase 2 — Indexed persistent blocks (scaffold)
+include 'tsdb-index'
+include 'tsdb-block'
+
+// Phase 3 — Query + compaction (planned; see docs/implementation-plan.md)
+
+// Phase 4 — Multi-tenant + HTTP + demo (planned; see docs/implementation-plan.md)

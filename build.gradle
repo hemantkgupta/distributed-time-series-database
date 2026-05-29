@@ -1,0 +1,82 @@
+// Root build for distributed-time-series-database.
+
+allprojects {
+    group = 'com.hkg.distributedtimeseriesdatabase'
+    version = '0.1.0-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java-library'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    dependencies {
+        testImplementation platform('org.junit:junit-bom:5.10.2')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testImplementation 'org.assertj:assertj-core:3.25.3'
+        testRuntimeOnly  'org.junit.platform:junit-platform-launcher'
+    }
+
+    test {
+        useJUnitPlatform()
+    }
+
+    compileJava.options.encoding     = 'UTF-8'
+    compileTestJava.options.encoding = 'UTF-8'
+}
+
+// =====================================================================
+// Module dependency graph
+// =====================================================================
+
+// Foundational
+project(':tsdb-common') {
+    dependencies {
+        // No internal deps — value types only.
+    }
+}
+
+// Phase 1
+project(':tsdb-compression') {
+    dependencies {
+        api project(':tsdb-common')
+    }
+}
+
+project(':tsdb-wal') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-compression')
+    }
+}
+
+project(':tsdb-head') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-compression')
+        api project(':tsdb-wal')
+    }
+}
+
+// Phase 2
+project(':tsdb-index') {
+    dependencies {
+        api project(':tsdb-common')
+    }
+}
+
+project(':tsdb-block') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-compression')
+        api project(':tsdb-index')
+        api project(':tsdb-head')
+    }
+}
