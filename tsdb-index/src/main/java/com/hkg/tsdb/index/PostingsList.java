@@ -23,6 +23,29 @@ public final class PostingsList {
         this.size = 0;
     }
 
+    public static PostingsList of(long... ids) {
+        PostingsList p = new PostingsList(ids.length);
+        for (long id : ids) {
+            p.append(id);
+        }
+        return p;
+    }
+
+    public static PostingsList fromSorted(long[] ids) {
+        PostingsList p = new PostingsList(ids.length);
+        long last = Long.MIN_VALUE;
+        boolean first = true;
+        for (long id : ids) {
+            if (!first && id <= last) {
+                throw new IllegalArgumentException("ids must be strictly increasing");
+            }
+            p.append(id);
+            last = id;
+            first = false;
+        }
+        return p;
+    }
+
     /** Append a series ID. Must be strictly greater than the last entry. */
     public void append(long id) {
         if (size > 0 && id <= ids[size - 1]) {
@@ -48,6 +71,10 @@ public final class PostingsList {
         return Arrays.copyOf(ids, size);
     }
 
+    public boolean isEmpty() {
+        return size == 0;
+    }
+
     /**
      * Sorted-intersection of two PostingsLists. O(n+m). The intersection
      * primitive that label-set predicates are resolved through.
@@ -65,6 +92,31 @@ public final class PostingsList {
                 i++;
             } else {
                 j++;
+            }
+        }
+        return out;
+    }
+
+    public static PostingsList union(PostingsList a, PostingsList b) {
+        PostingsList out = new PostingsList(a.size + b.size);
+        int i = 0, j = 0;
+        long last = Long.MIN_VALUE;
+        boolean wrote = false;
+        while (i < a.size || j < b.size) {
+            long next;
+            if (j >= b.size || (i < a.size && a.ids[i] < b.ids[j])) {
+                next = a.ids[i++];
+            } else if (i >= a.size || b.ids[j] < a.ids[i]) {
+                next = b.ids[j++];
+            } else {
+                next = a.ids[i];
+                i++;
+                j++;
+            }
+            if (!wrote || next != last) {
+                out.append(next);
+                last = next;
+                wrote = true;
             }
         }
         return out;

@@ -12,6 +12,12 @@ include 'tsdb-head'
 include 'tsdb-index'
 include 'tsdb-block'
 
-// Phase 3 — Query + compaction (planned; see docs/implementation-plan.md)
+// Phase 3 — Query + compaction
+include 'tsdb-query'
+include 'tsdb-compact'
 
-// Phase 4 — Multi-tenant + HTTP + demo (planned; see docs/implementation-plan.md)
+// Phase 4 — Multi-tenant + HTTP + demo
+include 'tsdb-tenant'
+include 'tsdb-http'
+include 'tsdb-node'
+include 'tsdb-bench'

@@ -80,3 +80,52 @@ project(':tsdb-block') {
         api project(':tsdb-head')
     }
 }
+
+// Phase 3
+project(':tsdb-query') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-block')
+    }
+}
+
+project(':tsdb-compact') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-block')
+        api project(':tsdb-query')
+    }
+}
+
+// Phase 4
+project(':tsdb-tenant') {
+    dependencies {
+        api project(':tsdb-common')
+    }
+}
+
+project(':tsdb-http') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-head')
+        api project(':tsdb-tenant')
+    }
+}
+
+project(':tsdb-node') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-head')
+        api project(':tsdb-block')
+        api project(':tsdb-query')
+        api project(':tsdb-compact')
+        api project(':tsdb-tenant')
+    }
+}
+
+project(':tsdb-bench') {
+    dependencies {
+        api project(':tsdb-common')
+        api project(':tsdb-node')
+    }
+}

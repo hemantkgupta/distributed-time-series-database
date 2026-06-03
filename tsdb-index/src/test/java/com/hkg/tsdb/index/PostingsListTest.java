@@ -53,4 +53,19 @@ class PostingsListTest {
         assertThat(PostingsList.intersect(a, b).size()).isEqualTo(0);
         assertThat(PostingsList.intersect(b, a).size()).isEqualTo(0);
     }
+
+    @Test
+    void union_mergesAndDeduplicates() {
+        PostingsList a = PostingsList.of(1L, 3L, 5L);
+        PostingsList b = PostingsList.of(2L, 3L, 7L);
+        assertThat(PostingsList.union(a, b).toArray()).containsExactly(1L, 2L, 3L, 5L, 7L);
+    }
+
+    @Test
+    void codec_roundTripsDeltaVarints() {
+        PostingsList p = PostingsList.of(100L, 101L, 1_000L, 1_000_000L);
+        byte[] encoded = PostingsCodec.encode(p);
+        assertThat(encoded.length).isLessThan(8 * p.size());
+        assertThat(PostingsCodec.decode(encoded).toArray()).containsExactly(p.toArray());
+    }
 }
