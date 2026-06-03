@@ -1,6 +1,6 @@
 # distributed-time-series-database — implementation plan
 
-This document captures the phase plan + checkpoint detail for the companion code repo. Phase 1 is implemented and green; Phases 2-4 are planned. The structure is patterned after the LSM-block-and-postings-index shape that Prometheus pioneered and Mimir / VictoriaMetrics / M3DB inherited.
+This document captures the phase plan + checkpoint detail for the companion code repo. Phases 1-4 are implemented and green. The structure is patterned after the LSM-block-and-postings-index shape that Prometheus pioneered and Mimir / VictoriaMetrics / M3DB inherited.
 
 ## §0 How to use this document
 
@@ -16,7 +16,7 @@ Read top-to-bottom. Each phase lists its checkpoints (CPs); each CP names the mo
 - Single-tenant, single-node — explicitly not a production engine
 
 **Non-goals:**
-- Multi-tenancy at scale (Phase 4 stubs the API; not load-tested)
+- Multi-tenancy at scale (Phase 4 enforces budgets, but does not model a distributed tenant-control plane)
 - Replication, HA, Raft consensus
 - Object-storage tier (Mimir's S3 store-gateway)
 - Distributed query (Monarch's hierarchical pushdown)
@@ -29,10 +29,10 @@ Read top-to-bottom. Each phase lists its checkpoints (CPs); each CP names the mo
 |---|---|---|
 | Block boundary | 2h, configurable | 2h hard-coded |
 | Chunks per block | thousands | dozens for tests |
-| Postings encoding | Roaring bitmaps | Phase 2 starts with sorted-int + delta+varbyte; Roaring-style in CP10 |
+| Postings encoding | Roaring bitmaps / bit-packed postings | Sorted IDs + delta-varint encoding |
 | WAL format | record-checksummed segments | segments + per-record CRC32 |
 | Compaction trigger | adaptive size-tiered | fixed 2h → 6h → 24h schedule |
-| HTTP wire format | Prometheus remote_write protobuf | Phase 4 will adopt a simplified subset |
+| HTTP wire format | Prometheus remote_write protobuf | Prometheus-text-inspired line format |
 
 ## §2 The paper's context
 
@@ -48,12 +48,12 @@ distributed-time-series-database/
 ├── tsdb-head/          # Head with per-series open Gorilla chunks + WAL recovery
 ├── tsdb-index/         # PostingsList + SymbolTable + IndexFile format
 ├── tsdb-block/         # BlockWriter + BlockReader (chunks + index files)
-├── (tsdb-query)/       # Planned Phase 3
-├── (tsdb-compact)/     # Planned Phase 3
-├── (tsdb-tenant)/      # Planned Phase 4
-├── (tsdb-http)/        # Planned Phase 4
-├── (tsdb-node)/        # Planned Phase 4
-└── (tsdb-bench)/       # Planned Phase 4
+├── tsdb-query/         # Label matchers + range/instant selectors + rate/group-by
+├── tsdb-compact/       # Vertical HA dedup + horizontal adjacent-window compaction
+├── tsdb-tenant/        # Per-tenant active-series budget gate
+├── tsdb-http/          # Minimal remote-write text parser + ingest adapter
+├── tsdb-node/          # In-process node composition
+└── tsdb-bench/         # Deterministic demo loader
 ```
 
 Dependency rule: foundational types (`tsdb-common`) at the bottom. Compression / index don't depend on each other. WAL depends on common + compression (it logs raw float samples but uses compression's bit-IO helpers). Block depends on common + compression + index + head. Query depends on common + block. Compact depends on block.
@@ -67,12 +67,12 @@ type=0x01 SAMPLE: u64 series_id || u64 timestamp_ms || f64 value
 type=0x02 SERIES: u64 series_id || varint label_count || (varint kv_len || utf8 key=value)* 
 ```
 
-Block file layout (Phase 2):
+Block file layout:
 ```
 block/
-  meta.json     - { id, min_ts, max_ts, series_count, sample_count, checksum }
-  chunks/000001 - concatenated Gorilla chunks; offsets in index
-  index         - symbol table | series section | postings | postings_offset
+  meta.json   - { id, minTs, maxTs, seriesCount, sampleCount }
+  chunks.bin  - concatenated Gorilla chunk records; offsets in index.bin
+  index.bin   - series labels + chunk references; logical postings rebuilt on read
 ```
 
 ## §5 Data structures
@@ -141,6 +141,13 @@ Phase 1 persistence is WAL-only. The head is rebuilt from WAL on startup. Persis
 
 See README.md for the canonical phase list. Each CP is a Gradle module + tests that produce a green build.
 
+Implemented checkpoints:
+
+- Phase 1 (CP1-CP5): foundational types, Gorilla compression, WAL, head, WAL recovery.
+- Phase 2 (CP6-CP10): postings codec, block writer/reader, head flush.
+- Phase 3 (CP11-CP15): label matchers, selectors, rate/group-by, vertical and horizontal compaction.
+- Phase 4 (CP16-CP20): tenant cardinality budgets, minimal remote-write parser, node composition, demo loader.
+
 ## §9 Failure modes
 
 | Failure | Detection | Recovery |
@@ -164,9 +171,13 @@ See README.md for the canonical phase list. Each CP is a Gradle module + tests t
 - `tsdb-compression` — GorillaChunk encode/decode roundtrip; stable-cadence ratio test (>10× on synthetic 60s data); jitter tolerance test
 - `tsdb-wal` — append + replay roundtrip; CRC-detect corruption; segment rotation
 - `tsdb-head` — getOrCreate idempotence; append-then-read; crash + recover roundtrip
-- `tsdb-index` (Phase 2) — postings encode/decode; intersection correctness
-- `tsdb-block` (Phase 2) — write + read roundtrip; label match correctness
-- Integration: load 10K samples / 100 series, flush, read
+- `tsdb-index` — postings encode/decode; intersection/union correctness; label-value exact match
+- `tsdb-block` — write + read roundtrip; label match correctness; head flush
+- `tsdb-query` — `=`, `=~`, range selectors, `rate()` and `sum by`
+- `tsdb-compact` — vertical HA dedup and horizontal adjacent-window merge
+- `tsdb-tenant` — active-series budget acceptance/rejection
+- `tsdb-http` — minimal line parser and ingest-to-head adapter
+- `tsdb-node` / `tsdb-bench` — append, flush, query, deterministic sample-count smoke test
 
 ## §12 Configuration knobs
 
@@ -182,12 +193,13 @@ tsdb.block.dir=/var/lib/tsdb/blocks
 tsdb.block.windowMillis=7200000         # 2h
 ```
 
-## §13 Stubs and departures
+## §13 Departures
 
 - No replication; no Raft; single-node
 - No JNI; pure JDK
-- No HTTP layer until Phase 4
-- No PromQL parser until Phase 3; in-process Java query API only
+- Minimal remote-write parser, not protobuf
+- PromQL subset only; in-process Java query API
+- Object-storage tier is represented by local immutable block directories
 
 ## §14 Glossary
 

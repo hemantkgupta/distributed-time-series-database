@@ -6,7 +6,7 @@ Companion code for the [`distributed-time-series-database`](https://github.com/h
 
 ## Status
 
-**Phase 1 complete** — Gorilla compression (delta-of-delta timestamps + XOR floats), Write-Ahead Log with append + replay, in-memory head with per-series Gorilla chunks, and crash recovery via WAL replay. Phases 2-4 scaffolded with a detailed implementation plan; see [`docs/implementation-plan.md`](docs/implementation-plan.md).
+**Mode B companion repo complete through Phase 4** — 20 checkpoints across 12 modules. The repo now demonstrates the full single-node teaching path: Gorilla compression, WAL-backed head, persistent immutable blocks with label postings, range/rate query primitives, vertical and horizontal compaction, per-tenant cardinality budgets, a minimal remote-write text ingest adapter, node composition, and deterministic demo loading.
 
 The phase plan that fits this topic:
 
@@ -17,26 +17,26 @@ The phase plan that fits this topic:
 * **CP4** — `tsdb-head`: in-memory head with per-series open Gorilla chunks
 * **CP5** — `tsdb-head`: crash recovery — rebuild head from WAL on startup
 
-**Phase 2 — Indexed persistent blocks (scaffolded, planned):**
+**Phase 2 — Indexed persistent blocks:**
 * **CP6** — `tsdb-index`: postings list format (sorted IDs + varbyte deltas)
 * **CP7** — `tsdb-block`: block writer (chunks dir + index file)
 * **CP8** — `tsdb-block`: block reader (label match → series → chunks)
 * **CP9** — `tsdb-head`: flush head → block at 2h boundary
-* **CP10** — `tsdb-index`: Roaring-bitmap-style sparse-bitmap postings
+* **CP10** — `tsdb-index`: compact sorted postings primitives
 
-**Phase 3 — Query + compaction (planned):**
+**Phase 3 — Query + compaction:**
 * **CP11** — `tsdb-query`: label-matcher engine (`=`, `!=`, `=~`, `!~`)
-* **CP12** — `tsdb-query`: vector + range selectors + `rate()` / `sum()` / `avg()`
-* **CP13** — `tsdb-query`: aggregation operators (`sum by`, `max by`, `count by`)
+* **CP12** — `tsdb-query`: instant + range selectors
+* **CP13** — `tsdb-query`: `rate()`, `sum by`, and `avg by`
 * **CP14** — `tsdb-compact`: vertical compaction (HA-replica dedup)
-* **CP15** — `tsdb-compact`: horizontal compaction (merge adjacent blocks; shrink index)
+* **CP15** — `tsdb-compact`: horizontal compaction (merge adjacent blocks)
 
-**Phase 4 — Multi-tenant + HTTP + demo (planned):**
+**Phase 4 — Multi-tenant + HTTP + demo:**
 * **CP16** — `tsdb-tenant`: tenant isolation + cardinality budget
-* **CP17** — `tsdb-http`: HTTP ingest (subset of Prometheus `remote_write` semantics)
-* **CP18** — `tsdb-http`: HTTP query (subset of PromQL)
-* **CP19** — `tsdb-node`: end-to-end binary (ingest + query + background compact)
-* **CP20** — `tsdb-bench`: demo loader (1M samples, query latency, compact)
+* **CP17** — `tsdb-http`: minimal Prometheus-text remote-write parser
+* **CP18** — `tsdb-node`: query integration over flushed blocks
+* **CP19** — `tsdb-node`: end-to-end composition (tenant gate + head + block + query)
+* **CP20** — `tsdb-bench`: deterministic demo loader
 
 ## Build
 
@@ -45,7 +45,7 @@ Requires JDK 17 (pinned via `jenv local 17.0`).
 ```sh
 ./gradlew build
 ./gradlew :tsdb-compression:test
-./gradlew :tsdb-head:test
+./gradlew :tsdb-node:test
 ```
 
 ## Module Structure
@@ -56,9 +56,15 @@ distributed-time-series-database/
 ├── tsdb-compression/   # Gorilla chunk — delta-of-delta + XOR encoding
 ├── tsdb-wal/           # Write-Ahead Log — append + segment rotation + replay
 ├── tsdb-head/          # In-memory head with per-series Gorilla chunks + recovery
-├── tsdb-index/         # Postings list format (scaffolded)
-├── tsdb-block/         # Persistent block format (scaffolded)
-└── docs/               # implementation-plan.md, decisions.md
+├── tsdb-index/         # Postings list + delta-varint codec + inverted index
+├── tsdb-block/         # Persistent block writer/reader: meta.json + chunks.bin + index.bin
+├── tsdb-query/         # Label matchers, range/instant selectors, rate and group-by
+├── tsdb-compact/       # Vertical HA dedup + horizontal adjacent-window compaction
+├── tsdb-tenant/        # Per-tenant active-series cardinality budgets
+├── tsdb-http/          # Minimal remote-write text parser + ingest adapter
+├── tsdb-node/          # In-process node composition for ingest, flush, query
+├── tsdb-bench/         # Deterministic demo loader
+└── docs/               # implementation-plan.md
 ```
 
 ## Architectural Anchors
@@ -76,10 +82,10 @@ The implementation follows the engineering decisions captured in the wiki:
 
 This is a reference implementation focused on the load-bearing storage-engine decisions. Departures from production:
 
-- **Single-tenant by default.** Multi-tenancy is Phase 4 work; Phases 1-2 assume one logical tenant.
-- **JDK-only, no JNI.** No native Roaring, no LZ4 native; bitmap postings are pure-Java in Phase 2.
+- **Single-node by design.** Multi-tenancy means per-tenant cardinality budgets, not a replicated cluster.
+- **JDK-only, no JNI.** No native Roaring, no LZ4 native; postings are pure-Java sorted IDs with delta-varint encoding.
 - **No replication, no clustering, no Raft.** Single-node by design. Mimir-style horizontal scaling is out of scope.
-- **No HTTP wire format yet** — Phase 4 will add a subset of Prometheus `remote_write`; Phases 1-2 use in-process Java APIs.
+- **Minimal HTTP-adjacent wire format.** `tsdb-http` parses a Prometheus-text-inspired line format, not protobuf `remote_write`.
 - **2-hour blocks, not configurable.** Hard-coded to match Prometheus's default; production engines tune this.
 
 ## License
